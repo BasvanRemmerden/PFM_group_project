@@ -1,0 +1,314 @@
+---
+title: "Group assignment 1 - Measuring and testing 'quality of earnings' metrics using Compustat and XBRL data"
+author: "Erik Peek"
+date: "11/03/2023"
+output: html_document
+---
+
+<style type="text/css">
+  body{
+  font-size: 11pt;
+}
+  blockquote{
+  font-size: 11pt;
+  font-style: italic;
+}
+  h1{
+  font-size: 20pt;
+}
+  h2{
+  font-size: 16pt;
+}
+  h3{
+  font-size: 14pt;
+}
+</style>
+
+```{r setup, include=FALSE}
+library(tidyr)
+library(dplyr)
+library(DT)
+# Options for the R-notebook
+knitr::opts_chunk$set(fig.width = 8, fig.height = 5, echo = T, warning=FALSE, message=FALSE, comment=FALSE, results = F)
+knitr::opts_knit$set(progress = TRUE, verbose = TRUE)
+```
+
+# About the assignment - General information
+
+Prepare a memo, in the form of an R markdown file that includes your R code, in which you address each of the requirements described below. You can make use of the R markdown template file available on Canvas as a starting point (see **Assignment 1.Rmd**). Preparing an R markdown file is straightforward and helps you integrate text, code, and output into one document (html or pdf). You must submit the following files:
+
+1.    The R markdown file. Note that the file must include all relevant chunks of R code and run smoothly.
+
+2.    The html file or pdf file (your choice) produced by the R markdown file, showing text, code, and output.
+
+3.    Any supplementary data files (in _rda_ format) you may have used to carry out the assignment.
+
+4.    The XBRL data file (in _rda_ format) you have created under Part 2 of this assignment.
+
+For more information about how to prepare an R markdown file, see [this website](https://rmarkdown.rstudio.com/lesson-1.html "R markdown").
+
+
+# Part 1 - Testing a 'quality of earnings' metric
+
+Because forecasts of profitability are a key input to equity valuations, measures indicating the 'quality of earnings' are of significant interest to investment professionals. Commercial financial data providers sell earnings quality measures estimated for a wide range of publicly listed firms. For example, LSEG (formerly Refinitiv) offers its StarMine Earnings Quality indicator, about which it indicates the following:
+
+> StarMine EQ employs a quantitative multi-factor approach to predict the persistence of earnings. Unlike more simplistic models that focus exclusively on accruals, StarMine EQ differentially weights the sources of earnings based on analysis  of their relative sustainability. (StarMine Quantitative Analytics, LSEG/Refinitiv)
+
+Like LSEG/Refinitiv, in this group assignment we define 'earnings quality' as the the (expected) persistence of profitability, or the extent to which next-year's profitability correlates with current profitability. 
+
+In this assignment, you are first asked to test the usefulness of the Beneish earnings management score, covered in class, as an earnings quality metric. In the first analysis, you will make use of a data set from Compustat, a commercial provider of standardized financial data. In the second part of the assignment, you are asked to (1) process, clean, and structure data originating from XBRL filings, (2) use those data to calculate the Beneish earnings management score, and (3) reflect on your experiences and the complexities around XBRL. Although the content covered in class should suffice to understand the Beneish score, a background reading link providing more information about the measure is available on Canvas (see module 1).
+
+## Data
+
+The data file that you must use for this assignment, named '**dataset.rda**,' can be downloaded from Canvas. The file is an R data file and contains financial statement data (from Compustat) for 5,133 U.S. firms, for fiscal years ending in December during the period 2013 through 2022 (37,364 observations in total; financial statement data in millions of US dollar). 
+
+> Note: Do not distribute these data and use these only for this assignment.
+
+Following is a quick glance at the first 100 observations of the dataset. An Excel file (1) describing all variables included in the data file and (2) showing how variables relate to the balance sheet, income statement, and cash flow statement, is also available on Canvas (**Variables.xlsx**).
+
+```{r results=T}
+load(file = "dataset.rda")
+head(dataset,100) %>% 
+  datatable( rownames = FALSE, options = list(pageLength = 5, scrollX=T) )
+```
+
+The dataset used in the assignment comes from 43 different industries (following the Fama-French industry classification). For more information about the Fama-French industry classification (and labels) used in the dataset, see [this website](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/det_48_ind_port.html "Fama-French 48 industry definitions"). Following is an overview of the number of observations by calendar year and industry.
+
+```{r results=T}
+dataset <- dataset %>% mutate(cyear = format(datadate, format="%Y")) 
+dataset %>% group_by(cyear) %>% 
+  count(., sort = F) %>% 
+  datatable( rownames = FALSE, options = list(pageLength = 5, scrollX=T) )
+dataset %>% group_by(FFindustry48) %>% 
+  count(., sort = F) %>% 
+  datatable( rownames = FALSE, options = list(pageLength = 5, scrollX=T) )
+```
+
+## Required - Part 1
+
+> Important: Throughout this assignment, we define profitability as the ratio between profit or loss (labeled income before extraordinary items in the dataset) and total assets, or _ib_/_at_.
+
+In your memo, address the following requirements:
+
+1.    Using the dataset provided to you, calculate the M score (Beneish, Lee \& Nichols 2013 and lecture 1) for each firm-year in the dataset (some observations will drop out the sample because of using lags).
+```{r data preparation}
+# Selecting the variables of interest for the M score
+df <- dataset %>%
+  select(gvkey, conm, cyear, datadate, FFindustry48, sale, cogs, xsga, dp, am, ib, oancf, rect, act, ppent, at, dlc, dltt) # Selecting variables
+
+# Mutating variables so that depreciation and debt are included correctly 
+df <- df %>% 
+  mutate(depr = dp - am,
+         debt = dlc + dltt) %>%
+  select(-c('dp', 'am', 'dlc', 'dltt')) # Removing unnecessary variables from the data
+
+# Checking for NA's, to see whether 
+colSums(is.na(df))
+
+
+# Setting values of variables that not all firms might have to 0
+# In our variables, these are: xsga, rect, depr, debt
+df <- df %>%
+  mutate(
+    xsga = ifelse(is.na(xsga), 0, xsga),
+    rect = ifelse(is.na(rect), 0, rect),
+    depr = ifelse(is.na(depr), 0, depr),
+    debt = ifelse(is.na(debt), 0, debt)
+  )
+
+# Creating lagged variables
+
+
+```
+
+
+```{r creating ratios}
+
+dataset <- arrange(dataset, gvkey, conm, datadate) # Sort by gvkey, company name, datadate
+dataset <- dataset %>% group_by(gvkey, conm) %>% 
+                mutate(lroaw = lag(roaw, n = 1)) # Calculate lags within gvkey, company name groups
+```
+
+2.    Show by means of one or a set of regression analyses whether the calculated M scores explain profitability persistence. Make sure that your memo is sufficiently informative about how you calculated the variables used.
+
+3.    Briefly discuss (100 words max) how well the M score works as an earnings quality metric.
+
+## Some advice - Part 1
+
+*   The Beneish et al article makes use of 'old' references to Compustat variables. To help you select the correct variables for the Beneish model, make use of the following 'translation' table:
+
+|variable                                               |Compustat name           |
+|---------------------------                            |-------------------------|
+|Sales                                                  |sale                     |
+|Cost of goods sold                                     |cogs                     |
+|SGA expense                                            |xsga                     |
+|Depreciation (excluding amortization)                  |dp - am                  |
+|Income before extraordinary items                      |ib                       |
+|Cash flow from operations                              |oancf                    |
+|Receivables                                            |rect                     |
+|Current assets                                         |act                      |
+|PPE, net                                               |ppent                    |
+|Total assets                                           |at                       |
+|Debt (short-term plus long-term)                       |dlc + dltt               |
+
+
+*   One way to test an earnings quality metric is by using the earnings persistence regression discussed on slide 19 of lecture 1. When doing so, beware of the following. Earnings persistence has a different meaning for positive and negative ROA. Therefore, when testing earning quality measures, it is important to either (a) focus on positive ROA only or (b) analyze interactions with positive and negative ROA separately.
+
+*   Another way to test an earnings quality metric is to see whether it helps predict/explain the direction of next year's earnings change (see e.g., Chen et al 2022). Under this approach, high earnings quality implies a higher probability of earnings increasing next year. You can also choose this approach.
+
+*   Make sure to winsorize extreme values of the M score components before calculating the M score. Given that the indices used to calculate the M score are `ratios of ratios,' it is probably best to winsorize the indices at the 5th and 95th percentiles.
+
+*   For some variables, missing values can be interpreted as zero values. For example, not all firms have intangible assets; thus, a missing value for amortization (i.e., depreciation on intangible assets) can be assumed zero. The same holds for items such as trade receivables, depreciation, and short-term or long-term debt. It does not hold for items that all firms should have, such as equity, net profit, or total assets. Note that this, for example, also implies that for a firm with zero debt, the LEVI index can be set equal to 1 in all years. (Such adjustments help preserve observations.)
+
+*   There may be gaps (i.e., more than 2 years in between two subsequent fiscal years) or firms changing fiscal year ends in financial datasets such as provided to you. The most accurate way to deal with observations for which the prior fiscal year end is not exactly one year ago is to remove these.
+
+# Part 2 - Getting, preparing, and using XBRL data
+
+XBRL is a markup language used by more and more companies worldwide to prepare structured financial statement filings that are machine-readable. The US Securities and Exchange Committee (SEC) - the US capital markets regulator - has mandated all companies listed on a US exchange to prepare and disclose XBRL-based financial filings. A few years ago, European regulator ESMA followed suit and mandated all European listed companies to publish their financial statements in XBRL format. Having knowledge about the structure of XBRL documents as well as the tools that are available to automate the collection of financial XBRL data can therefore help in preparing large sets of financial data at comparatively low cost and effort. 
+
+The second part of this assignment focuses on US companies' XBRL data. To avoid some of the complexities around the processing of XBRL filings - and make things easier for you - we will make use of the XBRL flat files, processed and made available by the SEC. You can find more information about these flat files [here](https://www.sec.gov/dera/data/financial-statement-data-sets).
+
+The objective of part 2 of this group assignment is twofold. It makes you acquainted with the structure, contents, and complexities of XBRL documents and it shows you how you can use freely and readily available XBRL data to prepare valuable financial statement data sets. To get going, go to [this website](https://www.sec.gov/dera/data/financial-statement-data-sets), download all first-quarter (20XX Q1) and second-quarter (20XX Q2) zip files for the years 2014 till 2023 to your R working directory, and extract each of these to a separate subfolder.
+
+```{r get and unpack xbrl zip files, include=TRUE}
+for(year in 2014:2023) {
+  utils::unzip(paste0(year, "q1.zip"), exdir = paste0(".\\", year, "q1"))
+  utils::unzip(paste0(year, "q2.zip"), exdir = paste0(".\\", year, "q2"))
+}
+```
+
+Each subfolder contains four text files: 
+
+*   sub.txt, the submission data set, containing one record for each XBRL submission and including information about the submission and the filing entity.
+*   num.txt, the number data set, containing one record for each numerical item included in each submission from 'sub.txt'
+*   tag.txt, the tag data set, containing information about the tags of 'num.txt,' and
+*   pre.txt, the presentation data set, providing information about how the items and tags from the above data sets were originally presented in the financial statements.
+
+More detailed information about the variables included in the four data sets can be found [here](https://www.sec.gov/files/aqfs.pdf).
+
+## Required - Part 2
+
+In a first step, create a data set meeting specific criteria that we specify below.
+
+To read and select (and show) observations from a 'sub.txt' file, you can use:
+
+```{r get submissions, include=TRUE, results=TRUE}
+sub2020q1 <- read.table(".\\2020q1\\sub.txt", sep = '\t', 
+                        header = TRUE, fill = TRUE, fileEncoding = "UTF-8", stringsAsFactors = FALSE, 
+                        quote="\"", comment.char = "") %>%
+  filter(form == "10-K")
+head(sub2020q1,10) %>% 
+  datatable( rownames = FALSE, options = list(pageLength = 5, scrollX=T) )
+```
+
+To read and select (and show) observations from a 'num.txt' file, you can use:
+
+```{r get filing data, include=TRUE, results=TRUE}
+num2020q1 <- read.table(".\\2020q1\\num.txt", sep = '\t', header = TRUE, fill = TRUE, 
+                        quote="\"", comment.char = "") %>% filter(coreg == "")
+head(num2020q1,10) %>% 
+  datatable( rownames = FALSE, options = list(pageLength = 5, scrollX=T) )
+```
+
+Initially, include the following variables in your data set: adsh, cik, name, period, tag, ddate, and value. Make sure that the data set:
+
+*   contains only data from **10-K** filings submitted by entities that (**1**) are incorporated in the US, (**2**) have December fiscal year ends, and (**3**) have non-financial, non-agricultural, for-profit activities (i.e., SIC code between 1000 and 5999 or between 7000 and 7999).
+*   contains data for fiscal years ending in the years **2013 till 2022**.
+*   contains only values that (**1**) are US dollar-denominated, (**2**) are **not** on a per-share basis, (**3**) are US-GAAP or IFRS (taxonomy) compliant (i.e., not company-specific), (**4**) represent 'flows' for 4 quarters or 'balances' for the end of the year, and (**5**) for which coreg = "".
+
+Note that the 'num.txt' file also contains values relating to prior fiscal years (named 'comparative figures'). For example, a company's filing data for the fiscal year ending on December 31, 2018 may include total assets for December 31, 2018, 2017, and 2016. This may create duplicate observations in your data set. In solving this, take the following approach: only include comparative figures if the originally reported value is not available in the dataset.
+
+To ensure that you focus on the most relevant accounting items, only keep tags in the data set for which the following applies:
+
+*    Within a specific year, the tag is available for at least 10 percent of the firms
+*    After removing the tags that do not comply with 1, the tag is available for at least 5 out of 10 years in the 2013 - 2022 period.
+
+> Note: this is 'messy' data. Double-check whether all fiscal years (period) and data years (ddate) truly end in December.
+
+In a second step, rearrange the created data set such that its format is similar to that of the Compustat file: **firm-years in rows, variables in columns**.
+
+Finally, use the cleaned-up and rearranged XBRL data set to calculate the Beneish earnings management score for as many firm-years in the data set as is feasibly possible. 
+
+> Use your own judgment to select the most appropriate input variables for your calculations. When you decide that  further adjustments to the data set will help increase the number of non-missing Beneish scores, focus only on those adjustments that lead to a significant decrease in missing values! Do not spend unnecessary time on minor adjustments or improvements. This is not the main purpose of the assignment.
+
+1.    Include the final XBRL data set (including Beneish scores) in your submission.
+
+
+2.    In your memo, summarize - in less than 150 words - which steps helped you improve the availability of non-missing Beneish scores in the data set.
+
+3.    In your memo, using less than 400 words, reflect on the pros and cons of using XBRL data to calculate earnings quality metrics such as the Beneish score, addressing at least the following questions: (a) Which complexities did you encounter in preparing the XBRL data set? (b) Which factors explain that the Beneish score has (likely) more missing values in the XBRL data set than in the Compustat data set? (c) if time had permitted, what else (if anything) could you have done to improve the XBRL data set? (d) What are potential benefits of using the XBRL data (compared with using Compustat data)? 
+
+# Some useful R code
+
+## Extreme values
+
+Note that it may be important (depending on the analysis method used) to identify and winsorize extreme values. For example, consider the distribution of return on assets (make sure that you install the ’DescTools’ package):
+
+```{r eval=FALSE}
+dataset$roa <- dataset$ib/dataset$at #Calculate ROA
+summary(dataset$roa) #Check ROA distribution
+hist(dataset$roa)
+
+library(DescTools)
+dataset$roaw <- Winsorize(dataset$roa, probs = c(0.01, 0.99)) #Use Winsorize function to winsorize ROA
+summary(dataset$roaw) #Check winsorized ROA distribution
+hist(dataset$roaw)
+
+```
+
+## Creating lags
+
+To create lags of (winsorized) ROA, you can use:
+
+```{r eval=FALSE}
+library(dplyr)
+
+```
+
+## Creating deciles and ranks
+
+If you have created variable 'roaw' and you wish to calculate scaled decile ranks for this variable by fiscal year, you can use:
+
+```{r eval=FALSE}
+dataset$year <- format(dataset$datadate, format="%Y") # Calculate years
+dataset <- dataset %>% group_by(year) %>% 
+                mutate(deca = ntile(roaw, 10)) # Calculate decile ranks by year
+dataset$decascaled <- (dataset$deca-1)/9  # Scale decile ranks to range between 0 and 1
+```
+
+## Loops
+
+When working on and combining a series of data sets, it can be very useful to know how to use loops. A loop helps to repetitively execute a (series of) statement(s), for example, allowing you to get the same type of data from a number of different web locations.
+
+In R, the _for_ loop has the following syntax:
+
+```{r eval=FALSE}
+for (variable in sequence) {
+  statement1;
+  statement2
+  }
+```
+
+Loops can also be used to repetitively apply a number of procedures to one or more data frames. Often, such loop produces a set of data frames that must be combined into one bigger data frame. For example, suppose we wish to create a data matrix, labeled _newdf_ that contains the first observation from the third column, the second observation from the second column, and the third observation from the first column of data matrix _olddf_. In that case, we can use the following syntax.
+
+```{r eval=FALSE}
+# Create a 3x3 matrix
+olddf <- matrix(1:9, nrow = 3, ncol = 3)
+
+# Create a list, labeled mlist
+mlist = list()
+
+# Use a loop to get the matrix elements
+# Store the obtained vectors in mlist 
+for (i in 1:3) {
+  mlist[[i]] <-  olddf[1,4 - i]
+  }
+```
+
+To combine the vectors in _mlist_ into one vector, we use
+
+```{r eval=FALSE}
+newdf <- do.call(bind_rows,mlist)
+```
+
+In this procedure, mlist is a list vector that 'stores' all vectors created during the loop. In the last step, the `do.call(bind_rows, . )` procedure combines the three vectors into one new vector, labeled _newdf_.
